@@ -11,10 +11,11 @@ const char* ssid = "Casaa";
 const char* password = "5t0$NRN~Th\"B5t[}u'zg4lKlj70mQ<";
 
 // Información del broker MQTT
-const char* mqtt_server = "192.168.0.50";  // Reemplaza con la IP de tu broker MQTT
+const char* mqtt_server = "192.168.0.106";  // Reemplaza con la IP de tu broker MQTT
+//const char* mqtt_server = "192.168.0.50";  // Reemplaza con la IP de tu broker MQTT
 const int mqtt_port = 1883;  // Puerto MQTT (usualmente 1883)
-const char* mqtt_user = "casa";   // Nombre de usuario (si aplica)
-const char* mqtt_password = "leonkirazeus"; // Contraseña (si aplica)
+//const char* mqtt_user = "casa";   // Nombre de usuario (si aplica)
+//const char* mqtt_password = "leonkirazeus"; // Contraseña (si aplica)
 
 // Tópicos MQTT
 const char* sensor_topic = "sensor/data";
@@ -51,7 +52,8 @@ void setup_wifi() {
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect(MY_NAME, mqtt_user, mqtt_password)) {
+    //if (client.connect(MY_NAME, mqtt_user, mqtt_password)) {
+    if (client.connect(MY_NAME)) {
       Serial.println("connected");
       client.subscribe(control_topic);  // Suscribimos al tópico de control para el LED
     } else {
