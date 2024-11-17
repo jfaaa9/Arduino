@@ -1,16 +1,13 @@
-#include <WiFi.h>
-#include <esp_now.h>
+#include <ESP8266WiFi.h>
+#include <espnow.h>
 #include <ArduinoJson.h>
 
 #define MY_NAME         "CONTROLLER_NODE"
-#define WIFI_CHANNEL    8
+#define MY_ROLE         ESP_NOW_ROLE_COMBO
+#define RECEIVER_ROLE   ESP_NOW_ROLE_COMBO
+#define WIFI_CHANNEL    1
 
-// Reemplaza con la información de tu red Wi-Fi
-const char* ssid = "Casaa";
-const char* password = "5t0$NRN~Th\"B5t[}u'zg4lKlj70mQ<";
-
-// Dirección MAC del esclavo
-uint8_t receiverAddress[] = {0x08, 0xF9, 0xE0, 0x75, 0x90, 0x10};
+uint8_t receiverAddress[] = {0x08, 0xF9, 0xE0, 0x75, 0x90, 0x10};  // Reemplaza con la MAC del esclavo
 
 // Estructuras de datos para el envío y recepción de datos
 struct __attribute__((packed)) dataPacket {
@@ -24,10 +21,10 @@ struct __attribute__((packed)) sensorDataPacket {
 };
 
 // Definimos los pines de los botones y del relé
-#define botonModoPin 25  // GPIO 25
-#define botonSiPin 33    // GPIO 33
-#define botonNoPin 32    // GPIO 32
-#define relePin 21       // GPIO 21
+#define botonModoPin 5  // GPIO 5 D1
+#define botonSiPin 4    // GPIO 4 D2
+#define botonNoPin 0    // GPIO 0 D3
+#define relePin 12      // GPIO 12 D6
 
 // Definimos los modos
 enum Modo { AUTOMATICO, SEMIAUTOMATICO, MANUAL };
@@ -47,26 +44,22 @@ const unsigned long intervaloImpresion = 10000;  // 10 segundos
 // Variable para el estado del LED en el esclavo
 bool toggleState = false;  // Variable de estado para el toggle
 
-void transmissionComplete(const uint8_t *receiver_mac, esp_now_send_status_t status) {
-  if (status == ESP_NOW_SEND_SUCCESS) {
+void transmissionComplete(uint8_t *receiver_mac, uint8_t transmissionStatus) {
+  if (transmissionStatus == 0) {
     Serial.println("Data sent successfully");
   } else {
     Serial.print("Error code: ");
-    Serial.println(status);
+    Serial.println(transmissionStatus);
   }
 }
 
 // Función para manejar la recepción de datos de los sensores
-void dataReceived(const esp_now_recv_info_t *recvInfo, const uint8_t *data, int dataLength) {
+void dataReceived(uint8_t *senderMac, uint8_t *data, uint8_t dataLength) {
   sensorDataPacket packet;
   memcpy(&packet, data, sizeof(packet));
 
   Serial.println();
-  Serial.print("Received sensor data from: ");
-  Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
-                recvInfo->src_addr[0], recvInfo->src_addr[1], recvInfo->src_addr[2],
-                recvInfo->src_addr[3], recvInfo->src_addr[4], recvInfo->src_addr[5]);
-  Serial.print("Humedad: ");
+  Serial.print("Received sensor data: Humedad: ");
   Serial.print(packet.humedad);
   Serial.print("%  Temperatura: ");
   Serial.print(packet.temperatura);
@@ -85,7 +78,7 @@ void dataReceived(const esp_now_recv_info_t *recvInfo, const uint8_t *data, int 
       releEncendido = false;
       Serial.println("No hay lluvia, desactivando relé.");
     }
-    digitalWrite(relePin, releEncendido ? LOW : HIGH);  // Invertir lógica
+    digitalWrite(relePin, releEncendido ? HIGH : LOW);
   }
 }
 
@@ -97,37 +90,18 @@ void setup() {
   Serial.print("My MAC address is: ");
   Serial.println(WiFi.macAddress());
 
-  // Configuración Wi-Fi
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  
-  Serial.print("Connecting to WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected.");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  WiFi.disconnect();
 
-  // Inicialización de ESP-NOW
-  if (esp_now_init() != ESP_OK) {
+  if (esp_now_init() != 0) {
     Serial.println("ESP-NOW initialization failed");
     return;
   }
 
+  esp_now_set_self_role(MY_ROLE);
   esp_now_register_send_cb(transmissionComplete);
+  esp_now_add_peer(receiverAddress, RECEIVER_ROLE, WIFI_CHANNEL, NULL, 0);
   esp_now_register_recv_cb(dataReceived);
-
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(peerInfo.peer_addr, receiverAddress, 6);
-  peerInfo.channel = WIFI_CHANNEL;
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
 
   Serial.println("Initialized.");
 
@@ -136,7 +110,7 @@ void setup() {
   pinMode(botonSiPin, INPUT_PULLUP);
   pinMode(botonNoPin, INPUT_PULLUP);
   pinMode(relePin, OUTPUT);
-  digitalWrite(relePin, HIGH);  // Relé inicialmente apagado (invertir lógica)
+  digitalWrite(relePin, LOW);  // Relé inicialmente apagado
 }
 
 void loop() {
@@ -163,6 +137,7 @@ void loop() {
 
   // --- Comportamiento según el modo actual ---
   if (millis() - ultimoTiempoImpresion >= intervaloImpresion) {
+    // Ha pasado más de 10 segundos, imprimimos el estado actual
     if (modoActual == AUTOMATICO) {
       Serial.println("Modo AUTOMATICO: control automático");
     } 
@@ -176,6 +151,7 @@ void loop() {
   }
 
   if (modoActual == SEMIAUTOMATICO) {
+    // Modo semiautomático: el usuario decide si activar el relé
     if (sensorLluvia) {
       Serial.println("Lluvia detectada, esperando decisión del usuario");
       if (estadoBotonSi == LOW && ultimoEstadoBotonSi == HIGH) {
@@ -186,10 +162,11 @@ void loop() {
         releEncendido = false;
         Serial.println("Botón No PRESIONADO: Relé desactivado");
       }
-      digitalWrite(relePin, releEncendido ? LOW : HIGH);
+      digitalWrite(relePin, releEncendido ? HIGH : LOW);
     }
   } 
   else if (modoActual == MANUAL) {
+    // Modo manual: los botones Sí y No controlan directamente el relé
     if (estadoBotonSi == LOW && ultimoEstadoBotonSi == HIGH) {
       releEncendido = true;
       Serial.println("Botón Sí PRESIONADO: Relé activado");
@@ -198,20 +175,21 @@ void loop() {
       releEncendido = false;
       Serial.println("Botón No PRESIONADO: Relé desactivado");
     }
-    digitalWrite(relePin, releEncendido ? LOW : HIGH);
+    digitalWrite(relePin, releEncendido ? HIGH : LOW);
   }
 
+  // Guardamos el estado actual de los botones Sí y No como último estado
   ultimoEstadoBotonSi = estadoBotonSi;
   ultimoEstadoBotonNo = estadoBotonNo;
 
   // --- Manejo de entrada serial para controlar el LED en el esclavo ---
   if (Serial.available()) {
-    char input = Serial.read();
-    if (input == 'q' || input == 'Q') {
-      toggleState = !toggleState;
+    char input = Serial.read();   // Leer el carácter
+    if (input == 'q' || input == 'Q') {   // Si se presiona 'q' o 'Q'
+      toggleState = !toggleState;  // Cambiar el estado de toggle
       dataPacket packet;
-      packet.state = toggleState ? 1 : 0;
-      esp_now_send(receiverAddress, (uint8_t *)&packet, sizeof(packet));
+      packet.state = toggleState ? 1 : 0;  // Encender (1) o apagar (0) según el estado de toggle
+      esp_now_send(receiverAddress, (uint8_t *)&packet, sizeof(packet));  // Enviar datos por ESP-NOW
       Serial.print("Enviando comando para ");
       Serial.println(toggleState ? "ENCENDER" : "APAGAR");
       Serial.println("el LED en el esclavo");

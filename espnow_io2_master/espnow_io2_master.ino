@@ -3,7 +3,6 @@
 #include <ArduinoJson.h>
 
 #define MY_NAME         "CONTROLLER_NODE"
-#define WIFI_CHANNEL    8
 
 // Reemplaza con la información de tu red Wi-Fi
 const char* ssid = "Casaa";
@@ -56,37 +55,46 @@ void transmissionComplete(const uint8_t *receiver_mac, esp_now_send_status_t sta
   }
 }
 
-// Función para manejar la recepción de datos de los sensores
+// Callback para manejar la recepción de datos del ESP8266
 void dataReceived(const esp_now_recv_info_t *recvInfo, const uint8_t *data, int dataLength) {
-  sensorDataPacket packet;
-  memcpy(&packet, data, sizeof(packet));
+    Serial.println("Callback dataReceived triggered");
+    Serial.print("Data length: ");
+    Serial.println(dataLength);
 
-  Serial.println();
-  Serial.print("Received sensor data from: ");
-  Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
-                recvInfo->src_addr[0], recvInfo->src_addr[1], recvInfo->src_addr[2],
-                recvInfo->src_addr[3], recvInfo->src_addr[4], recvInfo->src_addr[5]);
-  Serial.print("Humedad: ");
-  Serial.print(packet.humedad);
-  Serial.print("%  Temperatura: ");
-  Serial.print(packet.temperatura);
-  Serial.print(" °C  Lluvia: ");
-  Serial.println(packet.lluvia ? "Si" : "No");
+    // Confirmamos que el tamaño del paquete recibido es el esperado para sensorDataPacket
+    if (dataLength == sizeof(sensorDataPacket)) {
+        // Procesamos el paquete de datos de sensor
+        sensorDataPacket packet;
+        memcpy(&packet, data, sizeof(packet));
 
-  // Actualizamos el valor de lluvia
-  sensorLluvia = packet.lluvia;
+        // Mostramos los datos recibidos en el monitor serial
+        Serial.println("Received sensor data from:");
+        Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X\n",
+                      recvInfo->src_addr[0], recvInfo->src_addr[1], recvInfo->src_addr[2],
+                      recvInfo->src_addr[3], recvInfo->src_addr[4], recvInfo->src_addr[5]);
+        Serial.print("Humedad: ");
+        Serial.print(packet.humedad);
+        Serial.print("%  Temperatura: ");
+        Serial.print(packet.temperatura);
+        Serial.print(" °C  Lluvia: ");
+        Serial.println(packet.lluvia ? "Si" : "No");
 
-  // En el modo Automático, controlamos el relé automáticamente
-  if (modoActual == AUTOMATICO) {
-    if (sensorLluvia) {
-      releEncendido = true;
-      Serial.println("Lluvia detectada, activando relé.");
+        // Actualizamos el valor de lluvia y controlamos el relé automáticamente
+        sensorLluvia = packet.lluvia;
+        if (modoActual == AUTOMATICO) {
+            if (sensorLluvia) {
+                releEncendido = true;
+                Serial.println("Lluvia detectada, activando relé.");
+            } else {
+                releEncendido = false;
+                Serial.println("No hay lluvia, desactivando relé.");
+            }
+            digitalWrite(relePin, releEncendido ? LOW : HIGH);  // Invertimos la lógica
+        }
     } else {
-      releEncendido = false;
-      Serial.println("No hay lluvia, desactivando relé.");
+        // Si el tamaño del paquete no es el esperado, mostramos un mensaje de advertencia
+        Serial.println("Warning: Received packet with unexpected size.");
     }
-    digitalWrite(relePin, releEncendido ? LOW : HIGH);  // Invertir lógica
-  }
 }
 
 void setup() {
@@ -110,6 +118,11 @@ void setup() {
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
+  // Obtenemos el canal en el que está conectada la red Wi-Fi
+  int wifiChannel = WiFi.channel(); // Obtiene el canal actual
+  Serial.print("Current WiFi Channel: ");
+  Serial.println(wifiChannel);
+
   // Inicialización de ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW initialization failed");
@@ -121,12 +134,14 @@ void setup() {
 
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, receiverAddress, 6);
-  peerInfo.channel = WIFI_CHANNEL;
+  peerInfo.channel = wifiChannel; // Usa el mismo canal que la red Wi-Fi
   peerInfo.encrypt = false;
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add peer");
     return;
+  } else {
+    Serial.println("Add peer OK");
   }
 
   Serial.println("Initialized.");

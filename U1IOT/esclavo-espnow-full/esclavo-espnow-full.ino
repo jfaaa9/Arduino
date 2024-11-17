@@ -11,7 +11,7 @@ Código Esclavo actualizado para enviar datos del sensor al maestro
 
 #define MY_NAME   "SLAVE_NODE"
 #define MY_ROLE   ESP_NOW_ROLE_COMBO  // Cambiado a COMBO para que pueda enviar y recibir
-#define WIFI_CHANNEL 8
+#define WIFI_CHANNEL 1
 
 // Definir pines y tipos de sensores
 #define DHTPIN 4
@@ -21,7 +21,7 @@ Código Esclavo actualizado para enviar datos del sensor al maestro
 // Inicializar el objeto DHT
 DHT dht(DHTPIN, DHTTYPE);
 
-uint8_t masterAddress[] = {0xF8, 0xB3, 0xB7, 0x20, 0x7E, 0x10};  // Reemplazar con la MAC del maestro
+uint8_t masterAddress[] = {0x84, 0xCC, 0xA8, 0xA9, 0x69, 0x5A};  // Reemplazar con la MAC del maestro
 
 struct __attribute__((packed)) dataPacket {
   int state;
